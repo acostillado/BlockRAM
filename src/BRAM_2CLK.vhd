@@ -21,7 +21,7 @@ entity BRAM is                     -- un sólo puerto
     );
 end BRAM;
 
-architecture behavioral of BRAM is
+architecture BlockRam of BRAM is
 
   type tipo_RAM is array (integer range 0 to (2**G_DEPTH)-1) of std_logic_vector(G_BITS-1 downto 0);  --type INT_ARRAY is array (integer range <>)
   signal RAM                                    : tipo_RAM;
@@ -82,6 +82,35 @@ begin
   end generate GEN_OUTPUT;
 
 
-end behavioral;
+end BlockRAM;
+
+
+architecture LUTRAM of BRAM is
+
+  type tipo_RAM is array (integer range 0 to (2**G_DEPTH)-1) of std_logic_vector(G_BITS-1 downto 0);  --type INT_ARRAY is array (integer range <>)
+  signal RAM                                    : tipo_RAM;
+  signal w_addr, r_addr  : unsigned(G_DEPTH-1 downto 0);
+
+begin
+
+  w_addr <= unsigned(ADDRA);
+  r_addr <= unsigned(ADDRB);
+
+  process(CLKA)
+  begin
+    if rising_edge(CLKA) then
+      if WEA = '1' then
+        RAM(to_integer(w_addr)) <= DIA;  -- Entran datos a ritmo de CLKA-> PIXEL CLOCK
+      end if;
+    end if;
+  end process;
+  
+
+ DOA <= RAM(to_integer(w_addr));  -- -- si uso w_data y r_data se crea doble puerto
+ DOB <= RAM(to_integer(r_addr));  -- -- si uso w_data y r_data se crea doble puerto
+
+
+
+end LUTRAM;
 
 

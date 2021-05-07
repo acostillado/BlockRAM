@@ -22,6 +22,9 @@ use IEEE.MATH_REAL.all;
 use std.textio.all;
 use ieee.std_logic_textio.all;
 
+library UNISIM;
+use UNISIM.VComponents.all;
+
 
 entity VectorRegisterFile is
   generic(
@@ -31,6 +34,8 @@ entity VectorRegisterFile is
   port (
     sysclk0_clk_n : in std_logic;
     sysclk0_clk_p : in std_logic;
+    UART_RX       : in std_logic;
+    UART_TX       : out std_logic;
     HBM_CATTRIP   : out std_logic
    -- check boundaries.
     );
@@ -38,20 +43,8 @@ end VectorRegisterFile;
 
 architecture RTL of VectorRegisterFile is
 
-  component system is
-    port (
-      sysclk0_clk_n     : in  std_logic;
-      sysclk0_clk_p     : in  std_logic;
-      BRAM_PORTA_0_addr : out std_logic_vector (14 downto 0);
-      BRAM_PORTA_0_clk  : out std_logic;
-      BRAM_PORTA_0_din  : out std_logic_vector (511 downto 0);
-      BRAM_PORTA_0_dout : in  std_logic_vector (511 downto 0);
-      BRAM_PORTA_0_en   : out std_logic;
-      BRAM_PORTA_0_rst  : out std_logic;
-      BRAM_PORTA_0_we   : out std_logic_vector (63 downto 0)
-      );
-  end component system;
-
+    constant C_ADDR : integer := 5;
+    constant C_WR_EN : integer := 1;
   -----------------------------------------------------------------------------
   -- Signals
   -----------------------------------------------------------------------------
@@ -60,36 +53,37 @@ architecture RTL of VectorRegisterFile is
   signal vrfDout_r    : std_logic_vector(N_VELEMENTS*N_BITS-1 downto 0) := (others => '0');
   signal vrfAddrA_r   : std_logic_vector(4 downto 0)                   := (others => '0');
   signal vrfWrEn_r    : std_logic                                       := '0';
+  signal system_clk   : std_logic                                      := '0';
+  signal system_din   : std_logic_vector(C_WR_EN + N_VELEMENTS*N_BITS+C_ADDR-1 downto 0) := (others => '0');
   --
-  signal system_addrA : std_logic_vector(14 downto 0)                   := (others => '0');
-  signal system_clk   : std_logic;
-  signal system_din   : std_logic_vector(511 downto 0);
-  signal system_dout  : std_logic_vector(511 downto 0);
-  signal system_en    : std_logic;
-  signal system_rst   : std_logic;
-  signal system_wren  : std_logic_vector(63 downto 0);
+  signal shiftVrfOut  : std_logic_vector(N_VELEMENTS*N_BITS-1 downto 0) := (others => '0');
+  signal uart_tx_r    : std_logic;
 
 begin
 
-  system_i : component system
-    port map (
-      BRAM_PORTA_0_addr(14 downto 0)  => system_addrA(14 downto 0),
-      BRAM_PORTA_0_clk                => system_clk,
-      BRAM_PORTA_0_din(511 downto 0)  => system_din(511 downto 0),
-      BRAM_PORTA_0_dout(511 downto 0) => system_dout(511 downto 0),
-      BRAM_PORTA_0_en                 => system_en,
-      BRAM_PORTA_0_rst                => system_rst,
-      BRAM_PORTA_0_we(63 downto 0)    => system_wren(63 downto 0),
-      sysclk0_clk_n                   => sysclk0_clk_n,
-      sysclk0_clk_p                   => sysclk0_clk_p
-      );
+   IBUFDS_inst : IBUFDS
+   generic map (
+      DIFF_TERM => FALSE, -- Differential Termination 
+      IBUF_LOW_PWR => TRUE, -- Low power (TRUE) vs. performance (FALSE) setting for referenced I/O standards
+      IOSTANDARD => "DEFAULT")
+   port map (
+      O => system_clk,  -- Buffer output
+      I => sysclk0_clk_p,  -- Diff_p buffer input (connect directly to top-level port)
+      IB => sysclk0_clk_n -- Diff_n buffer input (connect directly to top-level port)
+   );
+   
+   process(system_clk)
+   begin
+    if rising_edge(system_clk) then
+        system_din <= system_din(C_WR_EN + N_VELEMENTS*N_BITS+C_ADDR-2 downto 0) & UART_RX;
+        shiftVrfOut <= vrfDout_r(vrfDout_r'high-1 downto 0) & shiftVrfOut(shiftVrfOut'high);
+        uart_tx_r <= shiftVrfOut(0);
+    end if;
+   end process;    
 
-  vrfAddrA_r <= system_addrA(4 downto 0);
-  vrfWrEn_r  <= system_din(0);
-
-  vrfDin_r <= system_din & system_din;
-
-  system_dout <= vrfDout_r(511 downto 0);
+  vrfAddrA_r <= system_din(C_ADDR-1 downto 0);
+  vrfWrEn_r  <= system_din(system_din'high);
+  vrfDin_r  <= system_din(N_VELEMENTS*N_BITS+C_ADDR-1 downto C_ADDR);
 
   Inst_BRAM_VRF : entity work.BRAM
     generic map (
@@ -109,5 +103,7 @@ begin
       );
       
       HBM_CATTRIP <= '0';
+      
+      UART_TX <= uart_tx_r;
 
 end;
